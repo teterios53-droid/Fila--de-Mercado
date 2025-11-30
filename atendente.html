@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Painel do Atendente</title>
+  <style>
+    body{
+      margin:0;
+      padding:0;
+      font-family: Arial, sans-serif;
+      background-image: url(/imagem/atendente.jpg);
+      display:flex;
+      justify-content:center;
+      padding:20px;
+    }
+    .container{
+      width:420px;
+      background:#ffffff;
+      padding:20px;
+      border-radius:16px;
+      box-shadow:0 4px 14px rgba(0,0,0,0.15);
+    }
+    h1{
+      text-align:center;
+      font-size:24px;
+      margin-bottom:20px;
+      color:#2c3e50;
+    }
+    .setor{
+      background:#f5f5f5;
+      padding:12px;
+      border-radius:10px;
+      margin-bottom:20px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      border-left:6px solid #3498db;
+    }
+    .setor h2{
+      margin:0;
+      font-size:20px;
+      color:#2c3e50;
+    }
+    .senha-box{
+      background:#3498db;
+      color:white;
+      padding:10px 18px;
+      font-size:32px;
+      border-radius:12px;
+      font-weight:bold;
+    }
+    .controls{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      margin-top:20px;
+    }
+    button{
+      width:100%;
+      padding:14px;
+      border:none;
+      border-radius:10px;
+      font-size:18px;
+      font-weight:bold;
+      cursor:pointer;
+      background:#1a6597;
+      color:white;
+      transition:0.2s;
+    }
+    button:hover{ background:#2385cf; }
+
+    .button1{ background-color: rgb(19, 121, 6); }
+    .button1:hover{background: rgb(17, 194, 46); }
+
+    .danger{ background:#a5291b; }
+    .danger:hover{ background:#d42a17; }
+
+    .list{
+      margin-top:25px;
+      background:#fafafa;
+      padding:15px;
+      border-radius:12px;
+      border:1px solid #ddd;
+    }
+    .list h3{
+      margin:0 0 10px 0;
+      color:#2c3e50;
+    }
+    .item{
+      padding:10px;
+      border-bottom:1px solid #ddd;
+      font-size:18px;
+    }
+    .item:last-child{
+      border-bottom:none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Painel do Atendente</h1>
+
+
+    <div class="setor" style="border-left-color:#c73d2e;">
+      <h2>Setor: Açougue</h2>
+      <div class="senha-box" style="background:#e74c3c;">A14</div>
+    </div>
+
+    <div class="controls">
+      <button class="button1">Chamar Próxima Senha</button>
+      <button class="danger">Cancelar Senha</button>
+      <button>Pular Senha</button>
+    </div>
+
+    <div class="list">
+      <h3>Últimas Senhas Chamadas</h3>
+      <div class="item">Açougue - A13</div>
+      <div class="item">Açougue - A12</div>
+      <div class="item">Açougue - A11</div>
+    </div>
+  </div>
+  
+  <script src="atendente.js"></script>
+
+</body>
+</html>

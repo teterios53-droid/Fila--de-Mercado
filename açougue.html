@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fila - Açougue</title>
+
+  <style>
+    body{
+      margin:0;
+      padding:0;
+      font-family: Arial, sans-serif;
+      background-image: url(/imagem/carne.jpg);
+      background-size: cover;
+      display:flex;
+      justify-content:center;
+    }
+    .container{
+      background:white;
+      width:380px;
+      padding:20px;
+      border-radius:14px;
+      margin-top:20px;
+      box-shadow:0 4px 10px rgba(0,0,0,0.15);
+    }
+    .header{
+      text-align:center;
+      font-size:22px;
+      font-weight:700;
+      margin-bottom:15px;
+      color:#8B0000;
+    }
+    .card{
+      background:#fafafa;
+      padding:15px;
+      border-left:6px solid #CC1C1C;
+      border-radius:10px;
+      margin-bottom:18px;
+    }
+    .label{
+      font-size:14px;
+      color:#444;
+      margin-bottom:5px;
+    }
+    .senha{
+      font-size:42px;
+      font-weight:bold;
+      background:#CC1C1C;
+      color:white;
+      padding:10px 0;
+      border-radius:10px;
+      text-align:center;
+    }
+    button{
+      width:100%;
+      padding:14px;
+      border:none;
+      border-radius:10px;
+      font-size:18px;
+      font-weight:bold;
+      cursor:pointer;
+      background:#9c0a0a;
+      color:white;
+      transition:0.2s;
+    }
+    button:hover{ background:#2177b8; }
+    .counter{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      font-size:22px;
+      font-weight:bold;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div class="container">
+    <div class="header">Açougue Boa Carne 🥩</div>
+
+    <div class="card">
+      <div class="label">SUA SENHA</div>
+      <div id="senha" class="senha">--</div>
+    </div>
+
+    <div class="card">
+      <div class="label">PESSOAS NA SUA FRENTE</div>
+      <div id="fila" class="counter">👥 --</div>
+    </div>
+
+    <div class="card">
+      <div class="label">TEMPO ESTIMADO</div>
+      <div id="tempo" class="counter">⏳ -- minutos</div>
+    </div>
+
+    <div class="card">
+      <div class="label">SENHA SENDO ATENDIDA</div>
+      <div id="chamada" class="senha">--</div>
+    </div>
+
+    <button id="cancelar">Cancelar Pedido</button>
+  </div>
+
+<script> 
+
+const socket = new WebSocket("ws://localhost:3500");
+
+// identifica o usuário (permanece mesmo ao recarregar)
+let userId = localStorage.getItem("acougueUserId");
+if (!userId) {
+  userId = crypto.randomUUID();
+  localStorage.setItem("acougueUserId", userId);
+}
+
+// se já tem senha salva, exibe até receber atualização real
+let minhaSenhaSalva = localStorage.getItem("acougueSenha");
+
+// ===============================
+// QUANDO CONECTAR AO BACKEND
+// ===============================
+socket.onopen = () => {
+  console.log("Conectado ao servidor do açougue!");
+
+  // gerar a senha automaticamente ao entrar
+  socket.send(JSON.stringify({ 
+    tipo: "gerarSenha", 
+    userId 
+  }));
+};
+
+// ===============================
+// RECEBENDO DADOS DO BACKEND
+// ===============================
+socket.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+
+  // quando receber a própria senha
+  if (data.tipo === "minhaSenha") {
+    document.getElementById("senha").innerText = data.senha;
+    localStorage.setItem("acougueSenha", data.senha);
+    minhaSenhaSalva = data.senha;
+    return;
+  }
+
+  // quando receber atualização geral da fila
+  if (data.tipo === "atualizacao") {
+
+    // fila completa
+    const fila = data.fila;
+
+    // localizar minha posição na fila
+    const index = fila.findIndex(p => p.userId === userId);
+
+    // minha senha já é conhecida?
+    if (minhaSenhaSalva) {
+      document.getElementById("senha").innerText = minhaSenhaSalva;
+    }
+
+    // quantas pessoas na frente
+    const pessoasNaFrente = index === -1 ? "--" : index;
+    document.getElementById("fila").innerText = `👥 ${pessoasNaFrente}`;
+
+    // tempo estimado (2 min por pessoa)
+    if (index >= 0) {
+      document.getElementById("tempo").innerText = `⏳ ${index * 2} minutos`;
+    }
+
+    // senha sendo atendida (primeiro da fila)
+    if (fila.length > 0) {
+      document.getElementById("chamada").innerText = fila[0].senha;
+    } else {
+      document.getElementById("chamada").innerText = "--";
+    }
+  }
+};
+
+// ===============================
+// CANCELAR SENHA
+// ===============================
+document.getElementById("cancelar").onclick = () => {
+  socket.send(JSON.stringify({
+    tipo: "cancelar",
+    userId
+  }));
+
+  // limpar interface local
+  localStorage.removeItem("acougueSenha");
+  document.getElementById("senha").innerText = "--";
+  document.getElementById("fila").innerText = "👥 --";
+  document.getElementById("tempo").innerText = "⏳ -- minutos";
+};
+</script>
+
+</body>
+</html>
