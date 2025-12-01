@@ -1,7 +1,7 @@
 //----------------------------------------------
 // CONFIGURAÇÃO DO WEBSOCKET (Render)
 //----------------------------------------------
-const WS_URL = "wss://fila-de-mercado.onrender.com/";
+const WS_URL = "wss://fila-de-mercado.onrender.com";
 
 //----------------------------------------------
 // ELEMENTOS DO HTML
