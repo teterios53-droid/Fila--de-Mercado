@@ -5,96 +5,97 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Painel do Atendente</title>
   <style>
-    body{
-      margin:0;
-      padding:0;
+    body {
+      margin: 0;
+      padding: 0;
       font-family: Arial, sans-serif;
       background-image: url(/imagem/atendente.jpg);
-      display:flex;
-      justify-content:center;
-      padding:20px;
+      display: flex;
+      justify-content: center;
+      padding: 20px;
     }
-    .container{
-      width:420px;
-      background:#ffffff;
-      padding:20px;
-      border-radius:16px;
-      box-shadow:0 4px 14px rgba(0,0,0,0.15);
+    .container {
+      width: 420px;
+      background: #ffffff;
+      padding: 20px;
+      border-radius: 16px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.15);
     }
-    h1{
-      text-align:center;
-      font-size:24px;
-      margin-bottom:20px;
-      color:#2c3e50;
+    h1 {
+      text-align: center;
+      font-size: 24px;
+      margin-bottom: 20px;
+      color: #2c3e50;
     }
-    .setor{
-      background:#f5f5f5;
-      padding:12px;
-      border-radius:10px;
-      margin-bottom:20px;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      border-left:6px solid #3498db;
+    .setor {
+      background: #f5f5f5;
+      padding: 12px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-left: 6px solid #3498db;
     }
-    .setor h2{
-      margin:0;
-      font-size:20px;
-      color:#2c3e50;
+    .setor h2 {
+      margin: 0;
+      font-size: 20px;
+      color: #2c3e50;
     }
-    .senha-box{
-      background:#3498db;
-      color:white;
-      padding:10px 18px;
-      font-size:32px;
-      border-radius:12px;
-      font-weight:bold;
+    .senha-box {
+      background: #3498db;
+      color: white;
+      padding: 10px 18px;
+      font-size: 32px;
+      border-radius: 12px;
+      font-weight: bold;
     }
-    .controls{
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-      margin-top:20px;
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 20px;
     }
-    button{
-      width:100%;
-      padding:14px;
-      border:none;
-      border-radius:10px;
-      font-size:18px;
-      font-weight:bold;
-      cursor:pointer;
-      background:#1a6597;
-      color:white;
-      transition:0.2s;
+    button {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 10px;
+      font-size: 18px;
+      font-weight: bold;
+      cursor: pointer;
+      background: #1a6597;
+      color: white;
+      transition: 0.2s;
     }
-    button:hover{ background:#2385cf; }
-    .button1{ background-color: rgb(19, 121, 6); }
-    .button1:hover{background: rgb(17, 194, 46); }
-    .danger{ background:#a5291b; }
-    .danger:hover{ background:#d42a17; }
-    .list{
-      margin-top:25px;
-      background:#fafafa;
-      padding:15px;
-      border-radius:12px;
-      border:1px solid #ddd;
+    button:hover { background: #2385cf; }
+    .button1 { background-color: rgb(19, 121, 6); }
+    .button1:hover { background: rgb(17, 194, 46); }
+    .danger { background: #a5291b; }
+    .danger:hover { background: #d42a17; }
+    .list {
+      margin-top: 25px;
+      background: #fafafa;
+      padding: 15px;
+      border-radius: 12px;
+      border: 1px solid #ddd;
     }
-    .list h3{
-      margin:0 0 10px 0;
-      color:#2c3e50;
+    .list h3 {
+      margin: 0 0 10px 0;
+      color: #2c3e50;
     }
-    .item{
-      padding:10px;
-      border-bottom:1px solid #ddd;
-      font-size:18px;
+    .item {
+      padding: 10px;
+      border-bottom: 1px solid #ddd;
+      font-size: 18px;
     }
-    .item:last-child{
-      border-bottom:none;
+    .item:last-child {
+      border-bottom: none;
     }
   </style>
 </head>
 <body>
+
   <div class="container">
     <h1>Painel do Atendente</h1>
 
@@ -115,98 +116,8 @@
     </div>
   </div>
 
-<script>
-const WS_URL = "wss://fila-de-mercado.onrender.com";
-let socket = new WebSocket(WS_URL);
-
-socket.onopen = () => {
-  console.log("Atendente conectado ao WebSocket");
-};
-
-socket.onmessage = (msg) => {
-  const data = JSON.parse(msg.data);
-
-  if (data.tipo === "atualizacao") {
-    atualizarUI(data);
-  }
-};
-
-function atualizarUI(data) {
-  document.getElementById("senhaAtual").textContent = data.historico[0] || "--";
-
-  const hist = document.getElementById("historico");
-  hist.innerHTML = "";
-
-  data.historico.slice(0, 5).forEach(s => {
-    const div = document.createElement("div");
-    div.classList.add("item");
-    div.textContent = s;
-    hist.appendChild(div);
-  });
-}
-
-document.getElementById("btnProxima").onclick = () => {
-  socket.send(JSON.stringify({ tipo: "chamar" }));
-};
-
-document.getElementById("btnCancelar").onclick = () => {
-  socket.send(JSON.stringify({ tipo: "cancelarAtendente" }));
-};
-
-document.getElementById("btnPular").onclick = () => {
-  socket.send(JSON.stringify({ tipo: "pular" }));
-};
-<script>
-const WS_URL = "wss://fila-de-mercado.onrender.com";
-let socket = new WebSocket(WS_URL);
-
-socket.onopen = () => {
-  console.log("Atendente conectado ao WebSocket");
-};
-
-socket.onmessage = (msg) => {
-  const data = JSON.parse(msg.data);
-
-  if (data.tipo === "atualizacao") {
-    atualizarUI(data);
-  }
-};
-
-function atualizarUI(data) {
-  // senha atual é sempre o primeiro do histórico
-  document.getElementById("senhaAtual").textContent = data.historico[0] || "--";
-
-  const hist = document.getElementById("historico");
-  hist.innerHTML = "";
-
-  data.historico.slice(0, 5).forEach(s => {
-    const div = document.createElement("div");
-    div.classList.add("item");
-    div.textContent = s;
-    hist.appendChild(div);
-  });
-}
-
-document.getElementById("btnProxima").onclick = () => {
-  socket.send(JSON.stringify({ tipo: "chamar" }));
-};
-
-document.getElementById("btnCancelar").onclick = () => {
-  const senhaAtual = document.getElementById("senhaAtual").textContent;
-
-  if (senhaAtual && senhaAtual !== "--") {
-    socket.send(JSON.stringify({
-      tipo: "cancelarSenha",
-      senha: senhaAtual
-    }));
-  }
-};
-
-document.getElementById("btnPular").onclick = () => {
-  socket.send(JSON.stringify({ tipo: "pular" }));
-};
-</script>
-
+  <!-- Script separado para lógica do atendente -->
+  <script src="atendente.js"></script>
 
 </body>
 </html>
