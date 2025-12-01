@@ -1,124 +1,60 @@
-//----------------------------------------------
-// CONFIGURAÇÃO DO WEBSOCKET (Render)
-//----------------------------------------------
 const WS_URL = "wss://fila-de-mercado.onrender.com";
 
-//----------------------------------------------
-// ELEMENTOS DO HTML
-//----------------------------------------------
 const senhaEl = document.getElementById("senha");
 const filaEl = document.getElementById("fila");
 const tempoEl = document.getElementById("tempo");
 const chamadaEl = document.getElementById("chamada");
 const btnCancelar = document.getElementById("cancelar");
 
-//----------------------------------------------
-// VARIÁVEIS DO CLIENTE
-//----------------------------------------------
 let socket = null;
 let userId = localStorage.getItem("userId") || gerarUserId();
 localStorage.setItem("userId", userId);
-
 let minhaSenha = localStorage.getItem("minhaSenha") || null;
 
-//----------------------------------------------
-// GERA UM ID ÚNICO PARA O CLIENTE
-//----------------------------------------------
-function gerarUserId() {
-  return "U" + Math.random().toString(36).substring(2, 10);
-}
+function gerarUserId(){ return "U"+Math.random().toString(36).substring(2,10); }
 
-//----------------------------------------------
-// INICIAR CONEXÃO WEBSOCKET
-//----------------------------------------------
-function conectar() {
+function conectar(){
   socket = new WebSocket(WS_URL);
-
-  socket.onopen = () => {
-    console.log("🔌 Conectado ao WebSocket");
-
-    if (minhaSenha) {
-      // Reconectar cliente já existente
-      socket.send(JSON.stringify({ tipo: "reconectar", userId }));
-    } else {
-      // Gera senha automaticamente ao entrar
-      socket.send(JSON.stringify({ tipo: "gerarSenha", userId }));
+  socket.onopen = ()=>{
+    console.log("Conectado ao WebSocket");
+    if(!minhaSenha){
+      socket.send(JSON.stringify({tipo:"gerarSenha", userId}));
+    }else{
+      socket.send(JSON.stringify({tipo:"reconectar", userId}));
     }
   };
-
-  socket.onerror = (err) => {
-    console.warn("⚠️ Erro no WebSocket:", err);
-  };
-
-  socket.onclose = () => {
-    console.log("🔌 WebSocket desconectado. Tentando reconectar...");
-    setTimeout(conectar, 2000);
-  };
-
-  socket.onmessage = (msg) => {
-    try {
-      const data = JSON.parse(msg.data);
-      tratarMensagem(data);
-    } catch (e) {
-      console.error("Erro ao processar mensagem WS:", e);
-    }
+  socket.onerror = (err)=>console.warn("Erro no WS:", err);
+  socket.onclose = ()=>{ console.log("WS desconectado. Tentando reconectar..."); setTimeout(conectar,2000); };
+  socket.onmessage = (msg)=>{
+    try{ tratarMensagem(JSON.parse(msg.data)); }
+    catch(e){ console.error("Erro processando mensagem WS:", e); }
   };
 }
 
 conectar();
 
-//----------------------------------------------
-// TRATAMENTO DE MENSAGENS
-//----------------------------------------------
-function tratarMensagem(data) {
-  if (data.tipo === "atualizacao") {
-    atualizarFila(data);
-    return;
-  }
-
-  if (data.tipo === "minhaSenha") {
-    minhaSenha = data.senha;
-    localStorage.setItem("minhaSenha", minhaSenha);
-    senhaEl.textContent = minhaSenha;
-    return;
-  }
-
-  if (data.tipo === "chamada") {
-    chamadaEl.textContent = data.senha || "--";
-    return;
-  }
+function tratarMensagem(data){
+  if(data.tipo==="atualizacao"){ atualizarFila(data); return; }
+  if(data.tipo==="minhaSenha"){ minhaSenha=data.senha; localStorage.setItem("minhaSenha", minhaSenha); senhaEl.textContent=minhaSenha; return; }
+  if(data.tipo==="chamada"){ chamadaEl.textContent=data.senha||"--"; return; }
 }
 
-//----------------------------------------------
-// ATUALIZA A INTERFACE
-//----------------------------------------------
-function atualizarFila(estado) {
-  if (!minhaSenha) return;
-
-  senhaEl.textContent = minhaSenha;
-
-  const posicao = estado.fila.findIndex(s => s.userId === userId);
-  filaEl.textContent = `👥 ${posicao >= 0 ? posicao : "--"}`;
-  tempoEl.textContent = `⏳ ${posicao >= 0 ? posicao : "--"} minutos`;
-
-  chamadaEl.textContent = estado.historico?.[0] || "--";
+function atualizarFila(estado){
+  if(minhaSenha) senhaEl.textContent = minhaSenha;
+  const posicao = estado.fila.findIndex(s=>s.userId===userId);
+  filaEl.textContent = `👥 ${posicao>=0?posicao:"--"}`;
+  tempoEl.textContent = `⏳ ${posicao>=0?posicao:"--"} minutos`;
+  chamadaEl.textContent = estado.historico?.[0]||"--";
 }
 
-//----------------------------------------------
-// CANCELAR O PEDIDO
-//----------------------------------------------
-btnCancelar.addEventListener("click", () => {
-  if (!minhaSenha) return;
-
-  socket.send(JSON.stringify({ tipo: "cancelar", userId }));
-
-  senhaEl.textContent = "--";
-  filaEl.textContent = "--";
-  tempoEl.textContent = "-- minutos";
-  chamadaEl.textContent = "--";
-
+btnCancelar.addEventListener("click",()=>{
+  if(!minhaSenha) return;
+  socket.send(JSON.stringify({tipo:"cancelar", userId}));
+  senhaEl.textContent="--";
+  filaEl.textContent="--";
+  tempoEl.textContent="-- minutos";
+  chamadaEl.textContent="--";
   localStorage.removeItem("minhaSenha");
-  minhaSenha = null;
-
+  minhaSenha=null;
   alert("Seu pedido foi cancelado!");
 });
