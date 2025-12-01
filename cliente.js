@@ -38,6 +38,15 @@ function conectar() {
   socket.onopen = () => {
     console.log("🔌 Conectado ao WebSocket");
 
+    // Solicitar senha automaticamente ao entrar
+    if (!minhaSenha) {
+      socket.send(JSON.stringify({
+        tipo: "gerarSenha",
+        userId
+      }));
+    }
+
+    // Se já tinha senha salva, reconectar
     if (minhaSenha) {
       socket.send(JSON.stringify({
         tipo: "reconectar",
@@ -99,9 +108,9 @@ function atualizarFila(estado) {
   }
 
   const posicao = estado.fila.findIndex(s => s.userId === userId);
-  filaEl.textContent = `👥 ${posicao >= 0 ? posicao : "--"}`;
+  filaEl.textContent = 👥 ${posicao >= 0 ? posicao : "--"};
 
-  tempoEl.textContent = `⏳ ${posicao >= 0 ? posicao : "--"} minutos`;
+  tempoEl.textContent = ⏳ ${posicao >= 0 ? posicao : "--"} minutos;
 
   chamadaEl.textContent = estado.historico?.[0] || "--";
 }
