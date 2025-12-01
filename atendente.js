@@ -2,6 +2,7 @@
 // CONFIGURAÇÃO DO WEBSOCKET (Render)
 //----------------------------------------------
 const WS_URL = "wss://fila-de-mercado.onrender.com";
+let socket = new WebSocket(WS_URL);
 
 //----------------------------------------------
 // ELEMENTOS DO HTML
@@ -13,24 +14,10 @@ const btnCancelar = document.getElementById("btnCancelar");
 const btnPular = document.getElementById("btnPular");
 
 //----------------------------------------------
-// INICIAR CONEXÃO WEBSOCKET
+// CONEXÃO WEBSOCKET
 //----------------------------------------------
-let socket = new WebSocket(WS_URL);
-
 socket.onopen = () => {
-  console.log("🔌 Atendente conectado ao WebSocket");
-};
-
-socket.onerror = (err) => {
-  console.warn("⚠️ Erro no WebSocket Atendente:", err);
-};
-
-socket.onclose = () => {
-  console.log("🔌 WebSocket Atendente desconectado. Tentando reconectar...");
-  setTimeout(() => {
-    socket = new WebSocket(WS_URL);
-    iniciarAtendenteJS();
-  }, 2000);
+  console.log("Atendente conectado ao WebSocket");
 };
 
 socket.onmessage = (msg) => {
@@ -44,19 +31,22 @@ socket.onmessage = (msg) => {
     if (data.tipo === "chamada") {
       senhaAtualEl.textContent = data.senha || "--";
     }
+
   } catch (e) {
-    console.error("Erro ao processar mensagem WS Atendente:", e);
+    console.error("Erro WS Atendente:", e);
   }
 };
 
 //----------------------------------------------
-// FUNÇÃO PARA ATUALIZAR O PAINEL DO ATENDENTE
+// ATUALIZA A INTERFACE DO ATENDENTE
 //----------------------------------------------
 function atualizarUI(data) {
+  // Atualiza senha atual (última chamada)
   senhaAtualEl.textContent = data.historico?.[0] || "--";
 
+  // Atualiza histórico
   historicoEl.innerHTML = "";
-  data.historico.slice(0, 5).forEach((s) => {
+  data.historico.slice(0, 5).forEach(s => {
     const div = document.createElement("div");
     div.classList.add("item");
     div.textContent = s;
@@ -65,19 +55,17 @@ function atualizarUI(data) {
 }
 
 //----------------------------------------------
-// BOTÕES DO ATENDENTE
+// CONTROLES DO ATENDENTE
 //----------------------------------------------
-btnProxima.addEventListener("click", () => {
+btnProxima.onclick = () => {
   socket.send(JSON.stringify({ tipo: "chamar" }));
-});
+};
 
-btnCancelar.addEventListener("click", () => {
-  const senha = senhaAtualEl.textContent;
-  if (!senha || senha === "--") return;
+btnCancelar.onclick = () => {
+  if (!senhaAtualEl.textContent || senhaAtualEl.textContent === "--") return;
+  socket.send(JSON.stringify({ tipo: "cancelarSenha", senha: senhaAtualEl.textContent }));
+};
 
-  socket.send(JSON.stringify({ tipo: "cancelarSenha", senha }));
-});
-
-btnPular.addEventListener("click", () => {
+btnPular.onclick = () => {
   socket.send(JSON.stringify({ tipo: "pular" }));
-});
+};
