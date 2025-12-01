@@ -32,26 +32,17 @@ function gerarUserId() {
 // INICIAR CONEXÃO WEBSOCKET
 //----------------------------------------------
 function conectar() {
-
   socket = new WebSocket(WS_URL);
 
   socket.onopen = () => {
     console.log("🔌 Conectado ao WebSocket");
 
-    // Solicitar senha automaticamente ao entrar
-    if (!minhaSenha) {
-      socket.send(JSON.stringify({
-        tipo: "gerarSenha",
-        userId
-      }));
-    }
-
-    // Se já tinha senha salva, reconectar
     if (minhaSenha) {
-      socket.send(JSON.stringify({
-        tipo: "reconectar",
-        userId
-      }));
+      // Reconectar cliente já existente
+      socket.send(JSON.stringify({ tipo: "reconectar", userId }));
+    } else {
+      // Gera senha automaticamente ao entrar
+      socket.send(JSON.stringify({ tipo: "gerarSenha", userId }));
     }
   };
 
@@ -77,10 +68,9 @@ function conectar() {
 conectar();
 
 //----------------------------------------------
-// TRATAMENTO DE MENSAGENS QUE CHEGAM DO BACKEND
+// TRATAMENTO DE MENSAGENS
 //----------------------------------------------
 function tratarMensagem(data) {
-
   if (data.tipo === "atualizacao") {
     atualizarFila(data);
     return;
@@ -100,17 +90,16 @@ function tratarMensagem(data) {
 }
 
 //----------------------------------------------
-// ATUALIZA A INTERFACE DO CLIENTE
+// ATUALIZA A INTERFACE
 //----------------------------------------------
 function atualizarFila(estado) {
-  if (minhaSenha) {
-    senhaEl.textContent = minhaSenha;
-  }
+  if (!minhaSenha) return;
+
+  senhaEl.textContent = minhaSenha;
 
   const posicao = estado.fila.findIndex(s => s.userId === userId);
-  filaEl.textContent = "👥 " + (posicao >= 0 ? posicao : "--");
-
- tempoEl.textContent = "⏳ " + (posicao >= 0 ? posicao : "--") + " minutos";
+  filaEl.textContent = `👥 ${posicao >= 0 ? posicao : "--"}`;
+  tempoEl.textContent = `⏳ ${posicao >= 0 ? posicao : "--"} minutos`;
 
   chamadaEl.textContent = estado.historico?.[0] || "--";
 }
@@ -121,10 +110,7 @@ function atualizarFila(estado) {
 btnCancelar.addEventListener("click", () => {
   if (!minhaSenha) return;
 
-  socket.send(JSON.stringify({
-    tipo: "cancelar",
-    userId
-  }));
+  socket.send(JSON.stringify({ tipo: "cancelar", userId }));
 
   senhaEl.textContent = "--";
   filaEl.textContent = "--";
