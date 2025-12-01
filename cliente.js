@@ -110,7 +110,7 @@ function atualizarFila(estado) {
   const posicao = estado.fila.findIndex(s => s.userId === userId);
   filaEl.textContent = "👥 " + (posicao >= 0 ? posicao : "--");
 
-  tempoEl.textContent = ⏳ ${posicao >= 0 ? posicao : "--"} minutos;
+ tempoEl.textContent = "⏳ " + (posicao >= 0 ? posicao : "--") + " minutos";
 
   chamadaEl.textContent = estado.historico?.[0] || "--";
 }
