@@ -1,5 +1,4 @@
-// BACKEND ÚNICO COMPATÍVEL COM SEU CLIENTE.JS
-// npm install express ws body-parser
+//server
 
 const express = require("express");
 const bodyParser = require("body-parser");
