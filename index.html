@@ -79,25 +79,30 @@
   <div class="container">
     <div class="header">Açougue Boa Carne 🥩</div>
 
-    <!-- SENHA DO CLIENTE -->
     <div class="card">
       <div class="label">SUA SENHA</div>
       <div id="senha" class="senha">--</div>
     </div>
 
-    <!-- POSIÇÃO DO CLIENTE NA FILA -->
     <div class="card">
-      <div class="label">SUA POSIÇÃO</div>
-      <div id="posicao" class="counter">👥 --</div>
+      <div class="label">PESSOAS NA SUA FRENTE</div>
+      <div id="fila" class="counter">👥 --</div>
     </div>
 
-    <!-- BOTÕES -->
-    <button id="btnGerar">Gerar Senha</button>
-    <br><br>
-    <button id="btnCancelar">Cancelar Senha</button>
-  </div>
+    <div class="card">
+      <div class="label">TEMPO ESTIMADO</div>
+      <div id="tempo" class="counter">⏳ -- minutos</div>
+    </div>
 
+    <div class="card">
+      <div class="label">SENHA SENDO ATENDIDA</div>
+      <div id="chamada" class="senha">--</div>
+    </div>
+
+    <button id="cancelar">Cancelar Pedido</button>
+  </div>
 <script src="cliente.js"></script>
+
 
 </body>
 </html>
