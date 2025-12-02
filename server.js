@@ -1,225 +1,164 @@
-// =====================================================
-// SERVER.JS — SISTEMA DE FILA DIGITAL (REORGANIZADO)
-// =====================================================
-
-const express = require("express");
-const bodyParser = require("body-parser");
 const WebSocket = require("ws");
-const path = require("path");
 
-const app = express();
-app.use(bodyParser.json());
+const wss = new WebSocket.Server({ port: 8080 });
 
-// Servir página + scripts + imagens
-app.use(express.static(path.join(__dirname)));
+// FILAS POR CATEGORIA
+let filas = {
+    acougue: [],
+    padaria: []
+};
 
-const PORT = process.env.PORT || 8080;
+// SENHA ATUAL CHAMADA (por categoria)
+let chamadas = {
+    acougue: null,
+    padaria: null
+};
 
-// =====================================================
-// ESTADO GLOBAL
-// =====================================================
-let fila = [];              // { userId, senha, timestamp }
-let historico = [];         // lista de senhas chamadas
-let puladas = [];           // senhas que foram puladas
-let senhaAtual = null;      // senha atualmente chamada
-let contador = 1;           // contador do gerador
-
-// =====================================================
-// FUNÇÕES AUXILIARES
-// =====================================================
-function gerarSenha() {
-  return "A" + contador++;
+// ===============================
+// BROADCAST
+// ===============================
+function broadcast(data) {
+    const msg = JSON.stringify(data);
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+            client.send(msg);
+        }
+    });
 }
 
-function send(ws, obj) {
-  try { ws.send(JSON.stringify(obj)); } catch {}
+// ===============================
+// ENVIAR CHAMADA PARA OS CLIENTES
+// ===============================
+function chamarSenha(categoria) {
+    const senha = chamadas[categoria];
+    if (!senha) return;
+
+    senha.chamada++; // <-- incrementa 1ª ou 2ª chamada
+
+    broadcast({
+        tipo: "chamarSenha",
+        senha: senha.codigo,
+        categoria,
+        chamada: senha.chamada
+    });
 }
 
-function broadcast(wss, obj, tipoPara = null) {
-  const json = JSON.stringify(obj);
-  wss.clients.forEach(ws => {
-    if (ws.readyState === WebSocket.OPEN) {
-      if (!tipoPara || ws.tipo === tipoPara) ws.send(json);
-    }
-  });
-}
-
-function registrarHistorico(senha) {
-  if (!senha) return;
-  historico.unshift(senha);
-  if (historico.length > 50) historico.pop();
-}
-
-// =====================================================
-// LÓGICA PRINCIPAL — ATENDENTE
-// =====================================================
-
-// CHAMAR PRÓXIMA SENHA
-function chamarProxima(wss) {
-  // 1 — existe senha pulada esperando?
-  if (puladas.length > 0) {
-    senhaAtual = puladas.shift();
-  }
-  // 2 — senão pega da fila normal
-  else if (fila.length > 0) {
-    const atendido = fila.shift();
-    senhaAtual = atendido.senha;
-  }
-  else {
-    senhaAtual = null;
-  }
-
-  registrarHistorico(senhaAtual);
-
-  broadcast(wss, { tipo: "chamada", senha: senhaAtual });
-  broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
-  broadcast(wss, { tipo: "atualizacao", fila, historico }, "atendente");
-}
-
-// PULAR SENHA ATUAL
-function pularSenha(wss) {
-
-  // Se não há senha atual ainda, chama a primeira
-  if (!senhaAtual) {
-    chamarProxima(wss);
-    return;
-  }
-
-  // 1 — guarda a senha atual temporariamente
-  const senhaPulada = senhaAtual;
-
-  // 2 — chama a próxima senha da fila
-  let novaAtual = null;
-
-  if (fila.length > 0) {
-    const proxima = fila.shift();
-    novaAtual = proxima.senha;
-  }
-
-  senhaAtual = novaAtual;
-
-  // 3 — reinsere a senha pulada LOGO DEPOIS da próxima senha
-  if (novaAtual) {
-    // insere no início da fila
-    fila.unshift({ userId: null, senha: senhaPulada, timestamp: Date.now() });
-  } else {
-    // se não tem próxima senha, volta ela para atual
-    senhaAtual = senhaPulada;
-  }
-
-  // registra no histórico
-  registrarHistorico(senhaAtual);
-
-  // envia atualizações
-  broadcast(wss, { tipo: "chamada", senha: senhaAtual || "--" });
-  broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
-  broadcast(wss, { tipo: "atualizacao", fila, historico }, "atendente");
-}
-
-
-// CANCELAR SENHA ESPECÍFICA
-function cancelarSenha(wss, senha) {
-  fila = fila.filter(x => x.senha !== senha);
-  puladas = puladas.filter(x => x !== senha);
-
-  broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
-  broadcast(wss, { tipo: "atualizacao", fila, historico }, "atendente");
-}
-
-// =====================================================
-// ROTAS HTTP
-// =====================================================
-app.post("/generate", (req, res) => {
-  const { userId } = req.body;
-  if (!userId) return res.status(400).json({ error: "userId required" });
-
-  const nova = { userId, senha: gerarSenha(), timestamp: Date.now() };
-  fila.push(nova);
-
-  res.json({ senha: nova.senha, position: fila.length - 1 });
-  broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
-});
-
-app.get("/status", (req, res) => {
-  res.json({ fila, historico, contador });
-});
-
-// =====================================================
-// INICIAR SERVIDOR
-// =====================================================
-const server = app.listen(PORT, () => {
-  console.log("Servidor rodando na porta:", PORT);
-});
-
-// =====================================================
+// ===============================
 // WEBSOCKET
-// =====================================================
-const wss = new WebSocket.Server({ server });
-
+// ===============================
 wss.on("connection", (ws) => {
-  console.log("WS conectado");
+    console.log("Novo cliente conectado.");
 
-  send(ws, { tipo: "atualizacao", fila, historico });
+    ws.on("message", (msg) => {
+        const dados = JSON.parse(msg);
 
-  ws.on("message", (msg) => {
-    try {
-      const data = JSON.parse(msg.toString());
+        // =====================================
+        // 1. GERAR SENHA
+        // =====================================
+        if (dados.acao === "gerarSenha") {
+            const categoria = dados.categoria;
+            const codigo = dados.codigo;
 
-      // IDENTIFICAÇÃO
-      if (data.tipo === "identificar") {
-        ws.tipo = data.tipoCliente;
-        send(ws, { tipo: "atualizacao", fila, historico });
-        return;
-      }
+            filas[categoria].push(codigo);
 
-      // ---------------------------------------------
-      // CLIENTE
-      // ---------------------------------------------
-      if (ws.tipo === "cliente") {
-        if (data.tipo === "gerarSenha") {
-          const nova = {
-            userId: data.userId,
-            senha: gerarSenha(),
-            timestamp: Date.now()
-          };
-
-          fila.push(nova);
-
-          send(ws, {
-            tipo: "minhaSenha",
-            senha: nova.senha,
-            position: fila.length - 1
-          });
-
-          broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
+            broadcast({
+                tipo: "filaAtualizada",
+                categoria,
+                fila: filas[categoria]
+            });
         }
 
-        if (data.tipo === "cancelar") {
-          fila = fila.filter(x => x.userId !== data.userId);
-          broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
+        // =====================================
+        // 2. ATENDENTE CHAMA SENHA
+        // =====================================
+        if (dados.acao === "chamarProxima") {
+            const categoria = dados.categoria;
+
+            if (filas[categoria].length === 0) {
+                ws.send(JSON.stringify({ tipo: "erro", msg: "Fila vazia" }));
+                return;
+            }
+
+            const codigo = filas[categoria].shift();
+
+            // Cria objeto da senha ativa
+            chamadas[categoria] = {
+                codigo,
+                chamada: 0 // vai virar 1 na função chamarSenha()
+            };
+
+            // Atualiza fila
+            broadcast({
+                tipo: "filaAtualizada",
+                categoria,
+                fila: filas[categoria]
+            });
+
+            // Envia primeira chamada
+            chamarSenha(categoria);
         }
-      }
 
-      // ---------------------------------------------
-      // ATENDENTE
-      // ---------------------------------------------
-      if (ws.tipo === "atendente") {
+        // =====================================
+        // 3. CLIENTE NÃO APARECE → TEMPO ACABOU → PULAR
+        // =====================================
+        if (dados.acao === "pularSenha") {
+            const senha = dados.senha;
 
-        if (data.tipo === "chamar") {
-          chamarProxima(wss);
+            console.log(`Senha ${senha} foi PULADA.`);
+
+            // Envia aos atendentes
+            broadcast({
+                tipo: "senhaPulada",
+                senha
+            });
+
+            // Recoloca no fim da fila
+            Object.keys(filas).forEach(cat => {
+                if (chamadas[cat] && chamadas[cat].codigo === senha) {
+                    filas[cat].push(senha);
+                    chamadas[cat] = null;
+
+                    broadcast({
+                        tipo: "filaAtualizada",
+                        categoria: cat,
+                        fila: filas[cat]
+                    });
+                }
+            });
         }
 
-        if (data.tipo === "pular") {
-          pularSenha(wss);
+        // =====================================
+        // 4. CLIENTE NÃO APARECE NA 2ª VEZ → CANCELAR
+        // =====================================
+        if (dados.acao === "cancelarSenha") {
+            const senha = dados.senha;
+
+            console.log(`Senha ${senha} foi CANCELADA.`);
+
+            broadcast({
+                tipo: "senhaCancelada",
+                senha
+            });
+
+            // Retira a senha definitivamente
+            Object.keys(chamadas).forEach(cat => {
+                if (chamadas[cat] && chamadas[cat].codigo === senha) {
+                    chamadas[cat] = null;
+                }
+            });
         }
 
-        if (data.tipo === "cancelarSenha") {
-          cancelarSenha(wss, data.senha);
-        }
-      }
+        // =====================================
+        // 5. ATENDENTE RECHAMAR (2ª chamada manual)
+        // =====================================
+        if (dados.acao === "repetirChamada") {
+            const categoria = dados.categoria;
 
-    } catch (e) {
-      console.log("Erro WS:", e);
-    }
-  });
+            if (chamadas[categoria]) {
+                chamarSenha(categoria);
+            }
+        }
+    });
 });
+
+console.log("Servidor WebSocket rodando na porta 8080");
