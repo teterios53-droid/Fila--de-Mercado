@@ -1,368 +1,225 @@
-// server.js
+// =====================================================
+// SERVER.JS — SISTEMA DE FILA DIGITAL 
+// =====================================================
+
 const express = require("express");
-const http = require("http");
+const bodyParser = require("body-parser");
 const WebSocket = require("ws");
 const path = require("path");
 
 const app = express();
-app.use(express.json());
-app.use(express.static(path.join(__dirname, "public"))); // ajuste se necessário
+app.use(bodyParser.json());
+
+// Servir página + scripts + imagens
+app.use(express.static(path.join(__dirname)));
 
 const PORT = process.env.PORT || 8080;
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
 
-// --- Estado das filas e chamadas ---
-const filas = {
-  acougue: [], // cada item: { codigo: "A001", chamadas: 0, userId: optional }
-  padaria: []
-};
+// =====================================================
+// ESTADO GLOBAL
+// =====================================================
+let fila = [];              // { userId, senha, timestamp }
+let historico = [];         // lista de senhas chamadas
+let puladas = [];           // senhas que foram puladas
+let senhaAtual = null;      // senha atualmente chamada
+let contador = 1;           // contador do gerador
 
-const chamadas = {
-  acougue: null, // { codigo:"A001", chamada:1, timestamp, timerId }
-  padaria: null
-};
+// =====================================================
+// FUNÇÕES AUXILIARES
+// =====================================================
+function gerarSenha() {
+  return "A" + contador++;
+}
 
-// Timer storage para limpar timers facilmente
-const timers = {
-  acougue: null,
-  padaria: null
-};
+function send(ws, obj) {
+  try { ws.send(JSON.stringify(obj)); } catch {}
+}
 
-// Tempo em ms (40 segundos)
-const TEMPO_CHAMADA_MS = 40 * 1000;
-
-// --- Helpers de broadcast ---
-function broadcastAll(obj) {
-  const msg = JSON.stringify(obj);
-  wss.clients.forEach(c => {
-    if (c.readyState === WebSocket.OPEN) {
-      c.send(msg);
+function broadcast(wss, obj, tipoPara = null) {
+  const json = JSON.stringify(obj);
+  wss.clients.forEach(ws => {
+    if (ws.readyState === WebSocket.OPEN) {
+      if (!tipoPara || ws.tipo === tipoPara) ws.send(json);
     }
   });
 }
 
-function broadcastCategory(category, obj) {
-  // atualmente broadcast para todos; caso queira filtrar por tipo de cliente,
-  // adicione lógica aqui (por ex. c.role === 'atendente' etc).
-  broadcastAll(obj);
+function registrarHistorico(senha) {
+  if (!senha) return;
+  historico.unshift(senha);
+  if (historico.length > 50) historico.pop();
 }
 
-// Atualiza todos com a fila atualizada (útil após mudanças)
-function enviarFilaAtualizada(category) {
-  broadcastAll({ tipo: "filaAtualizada", categoria: category, fila: filas[category] });
-}
+// =====================================================
+// LÓGICA PRINCIPAL — ATENDENTE
+// =====================================================
 
-// Envia atualização geral (fila + chamada)
-function enviarAtualizacaoGeral() {
-  const payload = {
-    tipo: "atualizacaoGeral",
-    filas,
-    chamadas: {
-      acougue: chamadas.acougue ? { codigo: chamadas.acougue.codigo, chamada: chamadas.acougue.chamada } : null,
-      padaria: chamadas.padaria ? { codigo: chamadas.padaria.codigo, chamada: chamadas.padaria.chamada } : null
-    }
-  };
-  broadcastAll(payload);
-}
-
-// --- Timer management ---
-function clearTimer(category) {
-  if (timers[category]) {
-    clearTimeout(timers[category]);
-    timers[category] = null;
+// CHAMAR PRÓXIMA SENHA
+function chamarProxima(wss) {
+  // 1 — existe senha pulada esperando?
+  if (puladas.length > 0) {
+    senhaAtual = puladas.shift();
   }
-  if (chamadas[category]) {
-    chamadas[category].timerId = null;
+  // 2 — senão pega da fila normal
+  else if (fila.length > 0) {
+    const atendido = fila.shift();
+    senhaAtual = atendido.senha;
   }
-}
-
-function startTimerParaChamada(category) {
-  clearTimer(category);
-
-  if (!chamadas[category]) return;
-  const codigo = chamadas[category].codigo;
-  const chamadaNum = chamadas[category].chamada; // 1 ou 2
-
-  // Start timer
-  timers[category] = setTimeout(() => {
-    // Timer expirou para essa chamada
-    if (chamadas[category] && chamadas[category].codigo === codigo) {
-      // Caso 1: primeira chamada expirou
-      if (chamadaNum === 1) {
-        // Notificar que tempo esgotou na 1ª chamada
-        broadcastAll({ tipo: "tempoEsgotadoPrimeiraChamada", categoria, senha: codigo });
-
-        // Recolocar a senha para ser chamada logo após a próxima:
-        // Implementação: inserir no início da fila para que ela volte logo na próxima chamada
-        filas[category].unshift(codigo);
-
-        // Emitir evento de senha pulada
-        broadcastAll({ tipo: "senhaPulada", categoria, senha: codigo });
-
-        // limpar a chamada atual (libera atendente para próxima)
-        chamadas[category] = null;
-        clearTimer(category);
-
-        // Atualiza fila e estado
-        enviarFilaAtualizada(category);
-        enviarAtualizacaoGeral();
-      }
-      // Caso 2: segunda chamada expirou => cancelar
-      else {
-        broadcastAll({ tipo: "tempoEsgotadoSegundaChamada", categoria, senha: codigo });
-        broadcastAll({ tipo: "senhaCancelada", categoria, senha: codigo });
-
-        // limpa a chamada atual sem retornar à fila
-        chamadas[category] = null;
-        clearTimer(category);
-
-        enviarFilaAtualizada(category);
-        enviarAtualizacaoGeral();
-      }
-    }
-  }, TEMPO_CHAMADA_MS);
-
-  // guarda timerId no objeto de chamada
-  if (chamadas[category]) chamadas[category].timerId = timers[category];
-}
-
-// --- Funções principais ---
-function chamarProxima(category) {
-  // se já existe uma chamada em andamento, ignorar ou permitir repetir?
-  // vamos permitir que chamarProxima só funcione se não houver chamada atual
-  if (chamadas[category]) {
-    // já existe uma chamada em andamento — retornar aviso
-    return { ok: false, msg: "Já existe uma chamada em andamento nessa categoria." };
+  else {
+    senhaAtual = null;
   }
 
-  if (!filas[category] || filas[category].length === 0) {
-    return { ok: false, msg: "Fila vazia" };
+  registrarHistorico(senhaAtual);
+
+  broadcast(wss, { tipo: "chamada", senha: senhaAtual });
+  broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
+  broadcast(wss, { tipo: "atualizacao", fila, historico }, "atendente");
+}
+
+// PULAR SENHA ATUAL
+function pularSenha(wss) {
+
+  // Se não há senha atual ainda, chama a primeira
+  if (!senhaAtual) {
+    chamarProxima(wss);
+    return;
   }
 
-  // pega próxima da fila
-  const codigo = filas[category].shift();
+  // 1 — guarda a senha atual temporariamente
+  const senhaPulada = senhaAtual;
 
-  // cria chamada
-  chamadas[category] = {
-    codigo,
-    chamada: 1,
-    timestamp: Date.now(),
-    timerId: null
-  };
+  // 2 — chama a próxima senha da fila
+  let novaAtual = null;
 
-  // envia a chamada para todos (clientes e atendentes)
-  broadcastAll({
-    tipo: "chamarSenha",
-    categoria,
-    senha: codigo,
-    chamada: 1
-  });
-
-  // atualiza filas
-  enviarFilaAtualizada(category);
-  enviarAtualizacaoGeral();
-
-  // inicia timer
-  startTimerParaChamada(category);
-
-  return { ok: true };
-}
-
-function repetirChamada(category) {
-  if (!chamadas[category]) {
-    return { ok: false, msg: "Não há chamada ativa para repetir." };
+  if (fila.length > 0) {
+    const proxima = fila.shift();
+    novaAtual = proxima.senha;
   }
 
-  // só permitir repetir se for primeira chamada
-  if (chamadas[category].chamada >= 2) {
-    return { ok: false, msg: "Já foi repetida 2 vezes." };
+  senhaAtual = novaAtual;
+
+  // 3 — reinsere a senha pulada LOGO DEPOIS da próxima senha
+  if (novaAtual) {
+    // insere no início da fila
+    fila.unshift({ userId: null, senha: senhaPulada, timestamp: Date.now() });
+  } else {
+    // se não tem próxima senha, volta ela para atual
+    senhaAtual = senhaPulada;
   }
 
-  // incrementar para a 2ª chamada
-  chamadas[category].chamada = 2;
-  chamadas[category].timestamp = Date.now();
+  // registra no histórico
+  registrarHistorico(senhaAtual);
 
-  // enviar segundo aviso
-  broadcastAll({
-    tipo: "chamarSenha",
-    categoria,
-    senha: chamadas[category].codigo,
-    chamada: 2
-  });
-
-  // reiniciar timer para a 2ª chamada
-  startTimerParaChamada(category);
-
-  enviarAtualizacaoGeral();
-  return { ok: true };
+  // envia atualizações
+  broadcast(wss, { tipo: "chamada", senha: senhaAtual || "--" });
+  broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
+  broadcast(wss, { tipo: "atualizacao", fila, historico }, "atendente");
 }
 
-function pularSenhaServidor(category) {
-  if (!chamadas[category]) return { ok: false, msg: "Nenhuma chamada ativa para pular." };
 
-  const codigo = chamadas[category].codigo;
+// CANCELAR SENHA ESPECÍFICA
+function cancelarSenha(wss, senha) {
+  fila = fila.filter(x => x.senha !== senha);
+  puladas = puladas.filter(x => x !== senha);
 
-  // enviar evento
-  broadcastAll({ tipo: "senhaPulada", categoria, senha: codigo });
-
-  // reinsere a senha para logo após próxima (coloca no início da fila)
-  filas[category].unshift(codigo);
-
-  // limpa chamada e timer
-  chamadas[category] = null;
-  clearTimer(category);
-
-  enviarFilaAtualizada(category);
-  enviarAtualizacaoGeral();
-  return { ok: true };
+  broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
+  broadcast(wss, { tipo: "atualizacao", fila, historico }, "atendente");
 }
 
-function cancelarSenhaServidor(category) {
-  if (!chamadas[category]) return { ok: false, msg: "Nenhuma chamada ativa para cancelar." };
+// =====================================================
+// ROTAS HTTP
+// =====================================================
+app.post("/generate", (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: "userId required" });
 
-  const codigo = chamadas[category].codigo;
+  const nova = { userId, senha: gerarSenha(), timestamp: Date.now() };
+  fila.push(nova);
 
-  // enviar evento
-  broadcastAll({ tipo: "senhaCancelada", categoria, senha: codigo });
-
-  // limpa chamada e timer (não reentra na fila)
-  chamadas[category] = null;
-  clearTimer(category);
-
-  enviarFilaAtualizada(category);
-  enviarAtualizacaoGeral();
-  return { ok: true };
-}
-
-function confirmarChegada(category, codigo) {
-  // se a chamada atual é essa, confirma e limpa timer
-  if (chamadas[category] && chamadas[category].codigo === codigo) {
-    clearTimer(category);
-    broadcastAll({ tipo: "clienteConfirmado", categoria, senha: codigo });
-
-    // marcar de alguma forma ou finalizar
-    chamadas[category] = null;
-    enviarAtualizacaoGeral();
-    return { ok: true };
-  }
-  return { ok: false, msg: "Chamada não coincide ou não existe." };
-}
-
-// --- WebSocket handling ---
-wss.on("connection", (ws) => {
-  // opcional: marcar role (cliente/atendente) se o front enviar identificar
-  ws.on("message", (msg) => {
-    let data = null;
-    try { data = JSON.parse(msg); } catch (e) { console.warn("JSON inválido:", msg); return; }
-
-    // identificar
-    if (data.tipo === "identificar" && data.tipoCliente) {
-      ws.role = data.tipoCliente; // 'cliente' ou 'atendente'
-      // enviar estado inicial
-      ws.send(JSON.stringify({
-        tipo: "inicial",
-        filas,
-        chamadas: {
-          acougue: chamadas.acougue ? { codigo: chamadas.acougue.codigo, chamada: chamadas.acougue.chamada } : null,
-          padaria: chamadas.padaria ? { codigo: chamadas.padaria.codigo, chamada: chamadas.padaria.chamada } : null
-        }
-      }));
-      return;
-    }
-
-    // Gerar nova senha (cliente)
-    if (data.acao === "gerarSenha") {
-      const categoria = data.categoria || "acougue";
-      const codigo = data.codigo || generateCodigo(categoria);
-
-      filas[categoria].push(codigo);
-      enviarFilaAtualizada(categoria);
-      enviarAtualizacaoGeral();
-      continueIfNeeded();
-      return;
-    }
-
-    // Cliente confirma que está indo
-    if (data.acao === "confirmar") {
-      const categoria = data.categoria || detectCategoriaFromCodigo(data.senha) || "acougue";
-      const codigo = data.senha;
-      const r = confirmarChegada(categoria, codigo);
-      // opcional: responder só para quem pediu
-      ws.send(JSON.stringify({ tipo: "confirmarResposta", ok: r.ok, msg: r.msg || null }));
-      return;
-    }
-
-    // Atendente chama próxima
-    if (data.acao === "chamarProxima") {
-      const categoria = data.categoria || "acougue";
-      const r = chamarProxima(categoria);
-      ws.send(JSON.stringify({ tipo: "chamarResposta", ok: r.ok, msg: r.msg || null }));
-      return;
-    }
-
-    // Atendente repete a chamada (2ª)
-    if (data.acao === "repetirChamada") {
-      const categoria = data.categoria || "acougue";
-      const r = repetirChamada(categoria);
-      ws.send(JSON.stringify({ tipo: "repetirResposta", ok: r.ok, msg: r.msg || null }));
-      return;
-    }
-
-    // Cliente/Servidor notificam pular (pode vir do cliente quando timer do cliente estoura)
-    if (data.acao === "pularSenha") {
-      // se enviaram categoria tente usá-la, senão deduza por código
-      const categoria = data.categoria || detectCategoriaFromCodigo(data.senha) || "acougue";
-      const r = pularSenhaServidor(categoria);
-      ws.send(JSON.stringify({ tipo: "pularResposta", ok: r.ok, msg: r.msg || null }));
-      return;
-    }
-
-    // Cancelar senha (quando expira 2ª vez ou manual)
-    if (data.acao === "cancelarSenha") {
-      const categoria = data.categoria || detectCategoriaFromCodigo(data.senha) || "acougue";
-      const r = cancelarSenhaServidor(categoria);
-      ws.send(JSON.stringify({ tipo: "cancelarResposta", ok: r.ok, msg: r.msg || null }));
-      return;
-    }
-  });
-
-  // envia estado inicial ao conectar
-  ws.send(JSON.stringify({
-    tipo: "inicial",
-    filas,
-    chamadas: {
-      acougue: chamadas.acougue ? { codigo: chamadas.acougue.codigo, chamada: chamadas.acougue.chamada } : null,
-      padaria: chamadas.padaria ? { codigo: chamadas.padaria.codigo, chamada: chamadas.padaria.chamada } : null
-    }
-  }));
+  res.json({ senha: nova.senha, position: fila.length - 1 });
+  broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
 });
 
-// --- util: gera código simples A001/B001 etc (você pode adaptar) ---
-let contadorA = 1;
-let contadorP = 1;
-function generateCodigo(categoria) {
-  if (categoria === "padaria") {
-    return "P" + String(contadorP++).padStart(3, "0");
-  }
-  return "A" + String(contadorA++).padStart(3, "0");
-}
+app.get("/status", (req, res) => {
+  res.json({ fila, historico, contador });
+});
 
-// util: tenta adivinhar categoria pelo prefixo do código
-function detectCategoriaFromCodigo(codigo) {
-  if (!codigo || typeof codigo !== "string") return null;
-  if (codigo.startsWith("P")) return "padaria";
-  if (codigo.startsWith("A")) return "acougue";
-  return null;
-}
+// =====================================================
+// INICIAR SERVIDOR
+// =====================================================
+const server = app.listen(PORT, () => {
+  console.log("Servidor rodando na porta:", PORT);
+});
 
-// Se quiser ligar um comportamento automático (ex: quando fila voltar a ter items, não necessário)
-// placeholder
-function continueIfNeeded() {
-  // por enquanto não faz nada
-}
+// =====================================================
+// WEBSOCKET
+// =====================================================
+const wss = new WebSocket.Server({ server });
 
-// --- iniciar servidor ---
-server.listen(PORT, () => {
-  console.log("Servidor rodando na porta", PORT);
+wss.on("connection", (ws) => {
+  console.log("WS conectado");
+
+  send(ws, { tipo: "atualizacao", fila, historico });
+
+  ws.on("message", (msg) => {
+    try {
+      const data = JSON.parse(msg.toString());
+
+      // IDENTIFICAÇÃO
+      if (data.tipo === "identificar") {
+        ws.tipo = data.tipoCliente;
+        send(ws, { tipo: "atualizacao", fila, historico });
+        return;
+      }
+
+      // ---------------------------------------------
+      // CLIENTE
+      // ---------------------------------------------
+      if (ws.tipo === "cliente") {
+        if (data.tipo === "gerarSenha") {
+          const nova = {
+            userId: data.userId,
+            senha: gerarSenha(),
+            timestamp: Date.now()
+          };
+
+          fila.push(nova);
+
+          send(ws, {
+            tipo: "minhaSenha",
+            senha: nova.senha,
+            position: fila.length - 1
+          });
+
+          broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
+        }
+
+        if (data.tipo === "cancelar") {
+          fila = fila.filter(x => x.userId !== data.userId);
+          broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
+        }
+      }
+
+      // ---------------------------------------------
+      // ATENDENTE
+      // ---------------------------------------------
+      if (ws.tipo === "atendente") {
+
+        if (data.tipo === "chamar") {
+          chamarProxima(wss);
+        }
+
+        if (data.tipo === "pular") {
+          pularSenha(wss);
+        }
+
+        if (data.tipo === "cancelarSenha") {
+          cancelarSenha(wss, data.senha);
+        }
+      }
+
+    } catch (e) {
+      console.log("Erro WS:", e);
+    }
+  });
 });
