@@ -1,49 +1,111 @@
-const socket = new WebSocket("wss://" + window.location.host);
+// ATENDENTE.JS
 
-socket.onopen = () => {
-    socket.send(JSON.stringify({
-        tipo: "identificar",
-        tipoCliente: "atendente"
-    }));
-};
+// Sempre pega automaticamente o WS correto (Render ou local)
+const WS_URL = location.origin.replace("http", "ws");
 
-// Elementos
+const socket = new WebSocket(WS_URL);
+
 const senhaAtual = document.getElementById("senhaAtual");
-const historicoDiv = document.getElementById("historico");
+const historicoEl = document.getElementById("historico");
 const btnProxima = document.getElementById("btnProxima");
+const btnCancelar = document.getElementById("btnCancelar");
 const btnPular = document.getElementById("btnPular");
 
-// Botões
-btnProxima.onclick = () => {
-    socket.send(JSON.stringify({ tipo: "chamar" }));
+socket.onopen = () => {
+  console.log("🧑‍💼 Atendente conectado ao WS");
+  socket.send(JSON.stringify({ tipo: "identificar", tipoCliente: "atendente" }));
 };
 
-btnPular.onclick = () => {
-    socket.send(JSON.stringify({ tipo: "pular" }));
+socket.onmessage = (msg) => {
+  try {
+    const data = JSON.parse(msg.data);
+
+    if (data.tipo === "atualizacao") atualizarUI(data);
+    if (data.tipo === "chamada") atualizarUI({ historico: [data.senha] });
+
+  } catch (e) {
+    console.error("Erro ao processar WS:", e);
+  }
 };
 
-// Receber atualizações
-socket.onmessage = (event) => {
-    const data = JSON.parse(event.data);
+socket.onclose = () => {
+  console.warn("WS desconectado (atendente), tentando reconectar...");
+  setTimeout(() => location.reload(), 2000);
+};
 
-    if (data.tipo === "chamada") {
-        senhaAtual.textContent = data.senha;
-    }
+function atualizarUI(data) {
+  senhaAtual.textContent = data.historico?.[0] || "--";
 
-    if (data.tipo === "atualizacao") {
+  historicoEl.innerHTML = "";
+  data.historico?.slice(0, 5).forEach(s => {
+    const div = document.createElement("div");
+    div.classList.add("item");
+    div.textContent = s;
+    historicoEl.appendChild(div);
+  });
+}
 
-        // Atualiza histórico
-        historicoDiv.innerHTML = "";
-        data.historico.forEach(s => {
-            const div = document.createElement("div");
-            div.className = "item";
-            div.textContent = s;
-            historicoDiv.appendChild(div);
-        });
+btnProxima.onclick = () => socket.send(JSON.stringify({ tipo: "chamar" }));
+btnPular.onclick = () => socket.send(JSON.stringify({ tipo: "pular" }));
 
-        if (data.fila.length > 0)
-            senhaAtual.textContent = data.fila[0].senha;
-        else
-            senhaAtual.textContent = "--";
-    }
+btnCancelar.onclick = () => {
+  const senha = senhaAtual.textContent;
+  if (!senha || senha === "--") return;
+
+  socket.send(JSON.stringify({ tipo: "cancelarSenha", senha }));
+};// ATENDENTE.JS
+
+// Sempre pega automaticamente o WS correto (Render ou local)
+const WS_URL = location.origin.replace("http", "ws");
+
+const socket = new WebSocket(WS_URL);
+
+const senhaAtual = document.getElementById("senhaAtual");
+const historicoEl = document.getElementById("historico");
+const btnProxima = document.getElementById("btnProxima");
+const btnCancelar = document.getElementById("btnCancelar");
+const btnPular = document.getElementById("btnPular");
+
+socket.onopen = () => {
+  console.log("🧑‍💼 Atendente conectado ao WS");
+  socket.send(JSON.stringify({ tipo: "identificar", tipoCliente: "atendente" }));
+};
+
+socket.onmessage = (msg) => {
+  try {
+    const data = JSON.parse(msg.data);
+
+    if (data.tipo === "atualizacao") atualizarUI(data);
+    if (data.tipo === "chamada") atualizarUI({ historico: [data.senha] });
+
+  } catch (e) {
+    console.error("Erro ao processar WS:", e);
+  }
+};
+
+socket.onclose = () => {
+  console.warn("WS desconectado (atendente), tentando reconectar...");
+  setTimeout(() => location.reload(), 2000);
+};
+
+function atualizarUI(data) {
+  senhaAtual.textContent = data.historico?.[0] || "--";
+
+  historicoEl.innerHTML = "";
+  data.historico?.slice(0, 5).forEach(s => {
+    const div = document.createElement("div");
+    div.classList.add("item");
+    div.textContent = s;
+    historicoEl.appendChild(div);
+  });
+}
+
+btnProxima.onclick = () => socket.send(JSON.stringify({ tipo: "chamar" }));
+btnPular.onclick = () => socket.send(JSON.stringify({ tipo: "pular" }));
+
+btnCancelar.onclick = () => {
+  const senha = senhaAtual.textContent;
+  if (!senha || senha === "--") return;
+
+  socket.send(JSON.stringify({ tipo: "cancelarSenha", senha }));
 };
