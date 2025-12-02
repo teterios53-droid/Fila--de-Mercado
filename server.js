@@ -79,29 +79,43 @@ function chamarProxima(wss) {
 // PULAR SENHA ATUAL
 function pularSenha(wss) {
 
-  // Se ainda não há senha chamada, chamar a primeira
+  // Se não há senha atual ainda, chama a primeira
   if (!senhaAtual) {
     chamarProxima(wss);
     return;
   }
 
-  // 1 — envia senha atual para lista de puladas
-  puladas.push(senhaAtual);
+  // 1 — guarda a senha atual temporariamente
+  const senhaPulada = senhaAtual;
 
-  // 2 — chama nova senha
+  // 2 — chama a próxima senha da fila
+  let novaAtual = null;
+
   if (fila.length > 0) {
     const proxima = fila.shift();
-    senhaAtual = proxima.senha;
-  } else {
-    senhaAtual = null;
+    novaAtual = proxima.senha;
   }
 
+  senhaAtual = novaAtual;
+
+  // 3 — reinsere a senha pulada LOGO DEPOIS da próxima senha
+  if (novaAtual) {
+    // insere no início da fila
+    fila.unshift({ userId: null, senha: senhaPulada, timestamp: Date.now() });
+  } else {
+    // se não tem próxima senha, volta ela para atual
+    senhaAtual = senhaPulada;
+  }
+
+  // registra no histórico
   registrarHistorico(senhaAtual);
 
+  // envia atualizações
   broadcast(wss, { tipo: "chamada", senha: senhaAtual || "--" });
   broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
   broadcast(wss, { tipo: "atualizacao", fila, historico }, "atendente");
 }
+
 
 // CANCELAR SENHA ESPECÍFICA
 function cancelarSenha(wss, senha) {
