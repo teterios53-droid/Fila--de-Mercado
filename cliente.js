@@ -1,59 +1,72 @@
 const socket = new WebSocket("wss://" + window.location.host);
 
-let userId = localStorage.getItem("userId");
-if (!userId) {
-    userId = "user-" + Math.random().toString(36).substring(2, 10);
-    localStorage.setItem("userId", userId);
-}
-
-const btnGerar = document.getElementById("btnGerar");
-const btnCancelar = document.getElementById("btnCancelar");
+// Elementos do HTML
 const displaySenha = document.getElementById("senha");
-const displayPosicao = document.getElementById("posicao");
+const displayFila = document.getElementById("fila");
+const displayTempo = document.getElementById("tempo");
+const displayChamada = document.getElementById("chamada");
+const btnCancelar = document.getElementById("cancelar");
 
-// Enviar identificação ao conectar
+// A senha atual do cliente
+let minhaSenha = null;
+
+// Ao conectar, nada precisa ser enviado ao servidor
 socket.onopen = () => {
-    socket.send(JSON.stringify({
-        acao: "identificar",
-        tipo: "cliente",
-        userId
-    }));
+    console.log("Conectado ao servidor");
 };
 
-// Gerar senha
-btnGerar.onclick = () => {
-    socket.send(JSON.stringify({
-        acao: "gerar",
-        userId
-    }));
+// Quando o cliente clica em pegar senha — SEU HTML não tem botão
+// Então vamos pegar a senha automaticamente quando abrir a página
+window.onload = () => {
+    socket.send(JSON.stringify({ tipo: "pegarSenha" }));
 };
 
-// Cancelar senha
+// Cancelar pedido
 btnCancelar.onclick = () => {
-    socket.send(JSON.stringify({
-        acao: "cancelar",
-        userId
-    }));
+    minhaSenha = null;
+    displaySenha.textContent = "--";
+    displayFila.textContent = "👥 --";
+    displayTempo.textContent = "⏳ -- minutos";
 };
 
-// Receber mensagens do servidor
+// Recebendo mensagens do servidor
 socket.onmessage = (event) => {
     const data = JSON.parse(event.data);
 
-    // Quando o cliente recebe sua senha
-    if (data.tipo === "minhaSenha") {
-        displaySenha.textContent = data.senha;
-        displayPosicao.textContent = data.position + 1;
+    // Recebi minha senha
+    if (data.tipo === "suaSenha") {
+        minhaSenha = data.senha;
+        displaySenha.textContent = minhaSenha;
+        return;
     }
 
-    // Atualização geral da fila
+    // Atualização da senha sendo atendida
     if (data.tipo === "atualizacao") {
-        if (data.minhaSenha) {
-            displaySenha.textContent = data.minhaSenha.senha;
-            displayPosicao.textContent = data.minhaSenha.position + 1;
-        } else {
-            displaySenha.textContent = "---";
-            displayPosicao.textContent = "-";
+        const atual = data.senhaAtual;
+
+        displayChamada.textContent = atual !== null ? atual : "--";
+
+        // Se cliente cancelou ou ainda não tem senha
+        if (!minhaSenha) {
+            displayFila.textContent = "👥 --";
+            displayTempo.textContent = "⏳ -- minutos";
+            return;
         }
+
+        // Cálculo de pessoas na frente
+        if (atual === null) {
+            displayFila.textContent = "👥 --";
+            displayTempo.textContent = "⏳ -- minutos";
+            return;
+        }
+
+        let pessoas = minhaSenha - atual;
+
+        if (pessoas < 0) pessoas = 0;
+
+        displayFila.textContent = "👥 " + pessoas;
+
+        // tempo estimado simples (1 minuto por pessoa)
+        displayTempo.textContent = "⏳ " + (pessoas * 1) + " minutos";
     }
 };
