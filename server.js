@@ -1,4 +1,7 @@
-// SERVER COMPLETO 
+// =====================================================
+// SERVER.JS — SISTEMA DE FILA DIGITAL (REORGANIZADO)
+// =====================================================
+
 const express = require("express");
 const bodyParser = require("body-parser");
 const WebSocket = require("ws");
@@ -7,23 +10,29 @@ const path = require("path");
 const app = express();
 app.use(bodyParser.json());
 
-// Servir toda a pasta do projeto (HTML / JS / imagens)
+// Servir página + scripts + imagens
 app.use(express.static(path.join(__dirname)));
 
-// Porta
 const PORT = process.env.PORT || 8080;
 
-// Estado da fila
-let fila = [];          // { userId, senha, timestamp }
-let historico = [];
-let contador = 1;
+// =====================================================
+// ESTADO GLOBAL
+// =====================================================
+let fila = [];              // { userId, senha, timestamp }
+let historico = [];         // lista de senhas chamadas
+let puladas = [];           // senhas que foram puladas
+let senhaAtual = null;      // senha atualmente chamada
+let contador = 1;           // contador do gerador
 
+// =====================================================
+// FUNÇÕES AUXILIARES
+// =====================================================
 function gerarSenha() {
   return "A" + contador++;
 }
 
 function send(ws, obj) {
-  try { ws.send(JSON.stringify(obj)); } catch (e) {}
+  try { ws.send(JSON.stringify(obj)); } catch {}
 }
 
 function broadcast(wss, obj, tipoPara = null) {
@@ -35,10 +44,79 @@ function broadcast(wss, obj, tipoPara = null) {
   });
 }
 
-// -------- ROTAS HTTP ---------
+function registrarHistorico(senha) {
+  if (!senha) return;
+  historico.unshift(senha);
+  if (historico.length > 50) historico.pop();
+}
+
+// =====================================================
+// LÓGICA PRINCIPAL — ATENDENTE
+// =====================================================
+
+// CHAMAR PRÓXIMA SENHA
+function chamarProxima(wss) {
+  // 1 — existe senha pulada esperando?
+  if (puladas.length > 0) {
+    senhaAtual = puladas.shift();
+  }
+  // 2 — senão pega da fila normal
+  else if (fila.length > 0) {
+    const atendido = fila.shift();
+    senhaAtual = atendido.senha;
+  }
+  else {
+    senhaAtual = null;
+  }
+
+  registrarHistorico(senhaAtual);
+
+  broadcast(wss, { tipo: "chamada", senha: senhaAtual });
+  broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
+  broadcast(wss, { tipo: "atualizacao", fila, historico }, "atendente");
+}
+
+// PULAR SENHA ATUAL
+function pularSenha(wss) {
+
+  // Se ainda não há senha chamada, chamar a primeira
+  if (!senhaAtual) {
+    chamarProxima(wss);
+    return;
+  }
+
+  // 1 — envia senha atual para lista de puladas
+  puladas.push(senhaAtual);
+
+  // 2 — chama nova senha
+  if (fila.length > 0) {
+    const proxima = fila.shift();
+    senhaAtual = proxima.senha;
+  } else {
+    senhaAtual = null;
+  }
+
+  registrarHistorico(senhaAtual);
+
+  broadcast(wss, { tipo: "chamada", senha: senhaAtual || "--" });
+  broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
+  broadcast(wss, { tipo: "atualizacao", fila, historico }, "atendente");
+}
+
+// CANCELAR SENHA ESPECÍFICA
+function cancelarSenha(wss, senha) {
+  fila = fila.filter(x => x.senha !== senha);
+  puladas = puladas.filter(x => x !== senha);
+
+  broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
+  broadcast(wss, { tipo: "atualizacao", fila, historico }, "atendente");
+}
+
+// =====================================================
+// ROTAS HTTP
+// =====================================================
 app.post("/generate", (req, res) => {
   const { userId } = req.body;
-
   if (!userId) return res.status(400).json({ error: "userId required" });
 
   const nova = { userId, senha: gerarSenha(), timestamp: Date.now() };
@@ -52,10 +130,16 @@ app.get("/status", (req, res) => {
   res.json({ fila, historico, contador });
 });
 
-// -------- INICIA SERVIDOR HTTP ---------
-const server = app.listen(PORT, () => console.log("Servidor rodando na porta", PORT));
+// =====================================================
+// INICIAR SERVIDOR
+// =====================================================
+const server = app.listen(PORT, () => {
+  console.log("Servidor rodando na porta:", PORT);
+});
 
-// -------- WEBSOCKET ---------
+// =====================================================
+// WEBSOCKET
+// =====================================================
 const wss = new WebSocket.Server({ server });
 
 wss.on("connection", (ws) => {
@@ -67,24 +151,32 @@ wss.on("connection", (ws) => {
     try {
       const data = JSON.parse(msg.toString());
 
-      // -------------------------------
       // IDENTIFICAÇÃO
-      // -------------------------------
       if (data.tipo === "identificar") {
-        ws.tipo = data.tipoCliente; // "cliente" ou "atendente"
+        ws.tipo = data.tipoCliente;
         send(ws, { tipo: "atualizacao", fila, historico });
         return;
       }
 
-      // -------------------------------
-      // COMANDOS CLIENTE
-      // -------------------------------
+      // ---------------------------------------------
+      // CLIENTE
+      // ---------------------------------------------
       if (ws.tipo === "cliente") {
         if (data.tipo === "gerarSenha") {
-          const nova = { userId: data.userId, senha: gerarSenha(), timestamp: Date.now() };
+          const nova = {
+            userId: data.userId,
+            senha: gerarSenha(),
+            timestamp: Date.now()
+          };
+
           fila.push(nova);
 
-          send(ws, { tipo: "minhaSenha", senha: nova.senha, position: fila.length - 1 });
+          send(ws, {
+            tipo: "minhaSenha",
+            senha: nova.senha,
+            position: fila.length - 1
+          });
+
           broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
         }
 
@@ -92,39 +184,23 @@ wss.on("connection", (ws) => {
           fila = fila.filter(x => x.userId !== data.userId);
           broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
         }
-
-        if (data.tipo === "reconectar") {
-          send(ws, { tipo: "atualizacao", fila, historico });
-        }
       }
 
-      // -------------------------------
-      // COMANDOS ATENDENTE
-      // -------------------------------
+      // ---------------------------------------------
+      // ATENDENTE
+      // ---------------------------------------------
       if (ws.tipo === "atendente") {
-        if (data.tipo === "chamar") {
-          if (fila.length === 0) return;
-          const atendido = fila.shift();
-          historico.unshift(atendido.senha);
-          if (historico.length > 50) historico.pop();
 
-          broadcast(wss, { tipo: "chamada", senha: atendido.senha });
-          broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
-          broadcast(wss, { tipo: "atualizacao", fila, historico }, "atendente");
+        if (data.tipo === "chamar") {
+          chamarProxima(wss);
         }
 
         if (data.tipo === "pular") {
-          if (fila.length <= 1) return;
-          const primeiro = fila.shift();
-          fila.push(primeiro);
-          broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
-          broadcast(wss, { tipo: "atualizacao", fila, historico }, "atendente");
+          pularSenha(wss);
         }
 
         if (data.tipo === "cancelarSenha") {
-          fila = fila.filter(x => x.senha !== data.senha);
-          broadcast(wss, { tipo: "atualizacao", fila, historico }, "cliente");
-          broadcast(wss, { tipo: "atualizacao", fila, historico }, "atendente");
+          cancelarSenha(wss, data.senha);
         }
       }
 
